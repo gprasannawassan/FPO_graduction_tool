@@ -4,59 +4,18 @@ import pandas as pd
 st.set_page_config(layout="wide")
 
 # ==============================
-# CUSTOM CSS
+# CSS
 # ==============================
 st.markdown("""
 <style>
-.main-title-card {
-    background-color: #0073e6;
-    padding: 3px;
-    border-radius: 4px;
-    margin-bottom: 8px;
-}
-.main-title-card h1 {
-    color: white;
-    font-size: 22px;
-    font-weight: bold;
-    margin: 0;
-}
-.section-card {
-    background-color: #f0f8ff;
-    padding: 20px;
-    border-radius: 12px;
-    text-align: center;
-    font-size: 18px;
-    font-weight: bold;
-    margin-bottom: 10px;
-    color: black;
-}
-.section-title {
-    font-size: 18px;
-    font-weight: bold;
-}
-.section-text {
-    font-size: 20px;
-    font-weight: bold;
-}
-.progress-container {
-    width: 100%;
-    background-color: #ddd;
-    border-radius: 8px;
-    margin-top: 8px;
-}
-.progress-bar {
-    height: 10px;
-    border-radius: 8px;
-}
-.overall-card {
-    background-color: #f0f8ff;
-    padding: 20px;
-    border-radius: 12px;
-    text-align: center;
-    font-size: 22px;
-    font-weight: bold;
-    margin-top: 30px;
-}
+.main-title-card {background-color:#0073e6;padding:3px;border-radius:4px;margin-bottom:8px;}
+.main-title-card h1 {color:white;font-size:22px;font-weight:bold;margin:0;}
+.section-card {background-color:#f0f8ff;padding:20px;border-radius:12px;text-align:center;font-size:18px;font-weight:bold;margin-bottom:10px;color:black;}
+.section-title {font-size:18px;font-weight:bold;}
+.section-text {font-size:20px;font-weight:bold;}
+.progress-container {width:100%;background-color:#ddd;border-radius:8px;margin-top:8px;}
+.progress-bar {height:10px;border-radius:8px;}
+.overall-card {background-color:#f0f8ff;padding:20px;border-radius:12px;text-align:center;font-size:22px;font-weight:bold;margin-top:30px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -64,84 +23,89 @@ st.markdown("""
 # FUNCTIONS
 # ==============================
 def clean_text(x):
+    if pd.isna(x):
+        return ""
     return str(x).strip().lower()
 
 def normalize(val):
     val = clean_text(val)
-    if val in ["yes", "y"]:
-        return "yes"
-    elif val in ["no", "n"]:
-        return "no"
+    if val in ["yes","y"]: return "yes"
+    elif val in ["no","n"]: return "no"
+    elif val in ["nan","","none"]: return "missing"
     return val
 
-def format_text(text):
-    return str(text).strip().capitalize()
+def format_text(x):
+    return str(x).capitalize()
 
-def maturity_label(percent):
-    if percent < 50:
-        return "Nascent", "red"
-    elif percent < 80:
-        return "Somewhat Mature", "orange"
-    elif percent < 100:
-        return "Near Mature", "lightgreen"
-    else:
-        return "Mature", "green"
+def maturity_label(p):
+    if p < 50: return "Nascent","red"
+    elif p < 80: return "Somewhat Mature","orange"
+    elif p < 100: return "Near Mature","lightgreen"
+    else: return "Mature","green"
+
+def calculate_section_percent(df, cols):
+    total, correct = 0, 0
+    for col in cols:
+        if col in df.columns and col in mature_map:
+            vals = df[col].apply(normalize)
+            correct += sum(vals == mature_map[col])
+            total += len(vals)
+    return (correct / total) * 100 if total else 0
 
 # ==============================
-# LOAD DATA
+# LOAD DATA (FIXED)
 # ==============================
 file_path = "FPO_Dashboard.xlsx"
 
-response_df = pd.read_excel(file_path, sheet_name="Response")
-mature_df = pd.read_excel(file_path, sheet_name="Mature")
+response_df = pd.read_excel(file_path, "Response")
+mature_df = pd.read_excel(file_path, "Mature")
 
 try:
-    rules_df = pd.read_excel(file_path, sheet_name="Rules")
-    rules_df = rules_df.apply(lambda col: col.map(clean_text))
-    rules_df.columns = rules_df.columns.str.strip().str.lower().str.replace(" ", "_")
+    rules_df = pd.read_excel(file_path, "Rules")
 except:
     rules_df = pd.DataFrame(columns=["section","condition","areas_of_improvements","action_plan"])
 
+# ✅ apply instead of applymap
 response_df = response_df.apply(lambda col: col.map(clean_text))
 mature_df = mature_df.apply(lambda col: col.map(clean_text))
+rules_df = rules_df.apply(lambda col: col.map(clean_text))
 
 response_df.columns = response_df.columns.map(clean_text)
 mature_df.columns = mature_df.columns.map(clean_text)
+rules_df.columns = rules_df.columns.str.strip().str.lower().str.replace(" ", "_")
 
 # ==============================
 # MATURE MAP
 # ==============================
-mature_map = {}
-for i in range(len(mature_df)):
-    key = clean_text(mature_df.iloc[i, 0])
-    val = normalize(mature_df.iloc[i, 1])
-    if key not in ["nan", "", "none"]:
-        mature_map[key] = val
+mature_map = {
+    clean_text(mature_df.iloc[i,0]): normalize(mature_df.iloc[i,1])
+    for i in range(len(mature_df))
+    if clean_text(mature_df.iloc[i,0]) not in ["","nan","none"]
+}
 
 # ==============================
 # SESSION STATE
 # ==============================
-if "selected_section" not in st.session_state:
-    st.session_state.selected_section = None
-
-if "selected_percent" not in st.session_state:
-    st.session_state.selected_percent = None
-
-if "view_details_section" not in st.session_state:
-    st.session_state.view_details_section = None
+for k,v in {
+    "selected_section":None,
+    "view_details_section":None,
+    "selected_fpo_main":""
+}.items():
+    if k not in st.session_state:
+        st.session_state[k]=v
 
 # ==============================
 # SECTIONS
 # ==============================
 sections = {
-    "FPO Registration": [
+    "FPO Registration":[
         "fpo_registration-registration_certificate",
         "fpo_registration-filing_regularly",
         "fpo_registration-notice_non-filing_returns",
         "fpo_registration-display_certificate",
         "fpo_registration-bylaws_copy_available"
     ],
-    "Membership": [
+    "Membership":[
         "fpo_membership-membership_forms_available",
         "fpo_membership-membership_receipts_available",
         "fpo_membership-membership_data_available",
@@ -149,7 +113,7 @@ sections = {
         "fpo_membership-share_certificates_acknowledged",
         "fpo_membership-active_shareholders_50percent"
     ],
-    "Institutional Strength and Governance": [
+    "Institutional Strength and Governance":[
         "strength_governanace-bod-tenure_rotation_rules",
         "strength_governanace-bod-bod_meet_once_a_month",
         "strength_governanace-bod-meeting_quorum",
@@ -170,43 +134,36 @@ sections = {
 }
 
 # ==============================
-# MAIN DASHBOARD
+# COMMON FILTER
+# ==============================
+def get_df():
+    if st.session_state.selected_fpo_main == "":
+        return response_df
+    return response_df[
+        response_df["fpo_registration-fpo_name"] == st.session_state.selected_fpo_main
+    ]
+
+# ==============================
+# DASHBOARD
 # ==============================
 if st.session_state.selected_section is None and st.session_state.view_details_section is None:
 
     st.markdown('<div class="main-title-card"><h1>FPO Graduation Tool</h1></div>', unsafe_allow_html=True)
 
     fpo_list = response_df["fpo_registration-fpo_name"].unique().tolist()
-    selected_fpo = st.selectbox("Select FPO", [""] + fpo_list)
+    st.selectbox("Select FPO", [""] + fpo_list, key="selected_fpo_main")
 
-    filtered_df = response_df if selected_fpo == "" else response_df[response_df["fpo_registration-fpo_name"] == selected_fpo]
+    df = get_df()
 
     section_scores = {}
-
     for section, cols in sections.items():
-        total, correct = 0, 0
+        section_scores[section] = round(calculate_section_percent(df, cols))
 
-        for col in cols:
-            if col in response_df.columns and col in mature_map:
+    cols_ui = st.columns(3)
 
-                if selected_fpo == "":
-                    correct += sum(filtered_df[col].apply(normalize) == mature_map[col])
-                    total += len(filtered_df)
-                else:
-                    response_val = normalize(filtered_df.iloc[0][col])
-                    total += 1
-                    if response_val == mature_map[col]:
-                        correct += 1
-
-        percent = (correct / total) * 100 if total > 0 else 0
-        section_scores[section] = {"percent": round(percent)}
-
-    cols = st.columns(3)
-
-    for j, (section, data) in enumerate(section_scores.items()):
-        with cols[j]:
-            percent = data["percent"]
-            label, color = maturity_label(percent)
+    for i,(section,percent) in enumerate(section_scores.items()):
+        with cols_ui[i]:
+            label,color = maturity_label(percent)
 
             st.markdown(f"""
             <div class="section-card">
@@ -218,18 +175,15 @@ if st.session_state.selected_section is None and st.session_state.view_details_s
             </div>
             """, unsafe_allow_html=True)
 
-            btn_col1, btn_col2 = st.columns(2)
+            c1,c2 = st.columns(2)
 
-            with btn_col1:
-                if st.button("View Recommendations", key=f"rec_{section}", use_container_width=True):
-                    st.session_state.selected_section = section
-                    st.session_state.selected_percent = percent
+            if c1.button("View Recommendations", key=f"rec_{section}"):
+                st.session_state.selected_section = section
 
-            with btn_col2:
-                if st.button("View Details", key=f"det_{section}", use_container_width=True):
-                    st.session_state.view_details_section = section
+            if c2.button("View Details", key=f"det_{section}"):
+                st.session_state.view_details_section = section
 
-    overall = sum([v["percent"] for v in section_scores.values()]) / len(section_scores)
+    overall = sum(section_scores.values()) / len(section_scores)
 
     st.markdown(f"""
     <div class="overall-card">
@@ -240,86 +194,100 @@ if st.session_state.selected_section is None and st.session_state.view_details_s
 # ==============================
 # RECOMMENDATIONS PAGE
 # ==============================
-elif st.session_state.selected_section is not None:
+elif st.session_state.selected_section:
 
     section = st.session_state.selected_section
-    percent = st.session_state.selected_percent
 
     st.markdown(f'<div class="main-title-card"><h1>{section} - Recommendations</h1></div>', unsafe_allow_html=True)
 
-    section_clean = clean_text(section)
-    section_rules = rules_df[rules_df["section"] == section_clean]
+    fpo_list = response_df["fpo_registration-fpo_name"].unique().tolist()
+    st.selectbox("Select FPO", [""] + fpo_list, key="selected_fpo_main")
 
-    if percent == 100:
-        matched_row = section_rules[section_rules["condition"] == "100"]
-    elif percent > 80:
-        matched_row = section_rules[section_rules["condition"] == ">80"]
-    elif percent > 50:
-        matched_row = section_rules[section_rules["condition"] == ">50"]
-    else:
-        matched_row = section_rules[section_rules["condition"] == "<50"]
+    if st.session_state.selected_fpo_main == "":
+        st.warning("⚠️ Please select an FPO to view suggestions")
+        if st.button("⬅️ Back"):
+            st.session_state.selected_section = None
+        st.stop()
 
-    tab1, tab2, tab3 = st.tabs(["Area of Improvements", "Action Plan", "📋 View Details"])
+    df = get_df()
+    percent = calculate_section_percent(df, sections[section])
+
+    section_rules = rules_df[rules_df["section"] == clean_text(section)]
+
+    if percent == 100: cond = "100"
+    elif percent > 80: cond = ">80"
+    elif percent > 50: cond = ">50"
+    else: cond = "<50"
+
+    matched = section_rules[section_rules["condition"] == cond]
+
+    tab1, tab2, tab3 = st.tabs(["Area of Improvements","Action Plan","View Details"])
 
     with tab1:
-        for _, row in matched_row.iterrows():
-            st.write(format_text(row['areas_of_improvements']))
+        for _,r in matched.iterrows():
+            st.write(format_text(r["areas_of_improvements"]))
 
     with tab2:
-        for _, row in matched_row.iterrows():
-            st.write(format_text(row['action_plan']))
+        for _,r in matched.iterrows():
+            st.write(format_text(r["action_plan"]))
 
     with tab3:
-        selected_fpo = st.selectbox("Select FPO", response_df["fpo_registration-fpo_name"].unique())
-
-        filtered_df = response_df[response_df["fpo_registration-fpo_name"] == selected_fpo]
-
         correct_list, wrong_list = [], []
 
         for col in sections[section]:
-            if col in response_df.columns and col in mature_map:
-                response_val = normalize(filtered_df.iloc[0][col])
-                if response_val == mature_map[col]:
+            if col in df.columns and col in mature_map:
+                vals = df[col].apply(normalize)
+                if sum(vals == mature_map[col]) == len(vals):
                     correct_list.append(col)
                 else:
                     wrong_list.append(col)
 
-        st.subheader("✅ Correct Questions")
+        st.subheader("Benchmarks Met")
         for q in correct_list:
             st.write(q)
 
-        st.subheader("❌ Incorrect Questions")
+        st.subheader("Actionable Improvement Areas")
         for q in wrong_list:
             st.write(q)
 
     if st.button("⬅️ Back"):
         st.session_state.selected_section = None
-        st.session_state.selected_percent = None
 
 # ==============================
 # DETAILS PAGE
 # ==============================
-elif st.session_state.view_details_section is not None:
+elif st.session_state.view_details_section:
 
     section = st.session_state.view_details_section
 
     st.markdown(f'<div class="main-title-card"><h1>{section} - Detailed View</h1></div>', unsafe_allow_html=True)
 
-    selected_fpo = st.selectbox("Select FPO", response_df["fpo_registration-fpo_name"].unique())
+    fpo_list = response_df["fpo_registration-fpo_name"].unique().tolist()
+    st.selectbox("Select FPO", [""] + fpo_list, key="selected_fpo_main")
 
-    filtered_df = response_df[response_df["fpo_registration-fpo_name"] == selected_fpo]
+    if st.session_state.selected_fpo_main == "":
+        st.warning("⚠️ Please select an FPO to view suggestions")
+        if st.button("⬅️ Back to Dashboard"):
+            st.session_state.view_details_section = None
+        st.stop()
+
+    df = get_df()
 
     correct_list, wrong_list = [], []
 
     for col in sections[section]:
-        if col in response_df.columns and col in mature_map:
-            response_val = normalize(filtered_df.iloc[0][col])
-            if response_val == mature_map[col]:
+        if col in df.columns and col in mature_map:
+            vals = df[col].apply(normalize)
+            if sum(vals == mature_map[col]) == len(vals):
                 correct_list.append(col)
             else:
                 wrong_list.append(col)
 
-    tab1, tab2, tab3 = st.tabs(["✅ Correct Questions", "❌ Incorrect Questions", "📊 Recommendations"])
+    tab1, tab2, tab3 = st.tabs([
+        "Benchmarks Met",
+        "Actionable Improvement Areas",
+        "Recommendations"
+    ])
 
     with tab1:
         for q in correct_list:
@@ -330,28 +298,24 @@ elif st.session_state.view_details_section is not None:
             st.write(q)
 
     with tab3:
-        total = len(correct_list) + len(wrong_list)
-        percent = (len(correct_list) / total) * 100 if total > 0 else 0
+        percent = calculate_section_percent(df, sections[section])
 
-        section_clean = clean_text(section)
-        section_rules = rules_df[rules_df["section"] == section_clean]
+        section_rules = rules_df[rules_df["section"] == clean_text(section)]
 
-        if percent == 100:
-            matched_row = section_rules[section_rules["condition"] == "100"]
-        elif percent > 80:
-            matched_row = section_rules[section_rules["condition"] == ">80"]
-        elif percent > 50:
-            matched_row = section_rules[section_rules["condition"] == ">50"]
-        else:
-            matched_row = section_rules[section_rules["condition"] == "<50"]
+        if percent == 100: cond = "100"
+        elif percent > 80: cond = ">80"
+        elif percent > 50: cond = ">50"
+        else: cond = "<50"
+
+        matched = section_rules[section_rules["condition"] == cond]
 
         st.subheader("Area of Improvements")
-        for _, row in matched_row.iterrows():
-            st.write(format_text(row['areas_of_improvements']))
+        for _,r in matched.iterrows():
+            st.write(format_text(r["areas_of_improvements"]))
 
         st.subheader("Action Plan")
-        for _, row in matched_row.iterrows():
-            st.write(format_text(row['action_plan']))
+        for _,r in matched.iterrows():
+            st.write(format_text(r["action_plan"]))
 
     if st.button("⬅️ Back to Dashboard"):
         st.session_state.view_details_section = None
